@@ -17,7 +17,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 <h1>Error accessing {path}</h1>
                 <p>{message}</p>
             </body>
-
         </html>
     '''
 
@@ -27,13 +26,15 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/html')
         self.send_header('Content-Length', str(len(content)))
         self.end_headers()
-        self.wfile.write(content.encode(encoding='utf-8'))
+        if isinstance(content, str):
+            content = content.encode('utf-8')
+        self.wfile.write(content)
 
     # 处理请求
     def do_GET(self):
         try:
             # 文件完整路径
-            full_path = os.getcwd + self.path
+            full_path = os.getcwd() + self.path
 
             if not os.path.exists(full_path):
                 # 文件路径不存在
