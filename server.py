@@ -2,10 +2,33 @@
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
+import subprocess
+
+
+# 条件处理基类
+class Base_case(object):
+
+    def handle_file(self, handler, full_path):
+        try:
+            with open(full_path, 'rb') as reader:
+                content = reader.read()
+            handler.send_content(content)
+        except IOError as msg:
+            msg = "'{0}' cannot be read: {1}".format(full_path, msg)
+            handler.handle_error(msg)
+
+    def index_path(self, handler):
+        return os.path.join(handler.full_path, 'index.html')
+
+    def test(self, handler):
+        assert False, 'Not implemented.'
+
+    def act(self, handler):
+        assert False, 'Not implemented.'
 
 
 # 路径不存在条件类
-class Case_no_file(object):
+class Case_no_file(Base_case):
 
     def test(self, handler):
         return not os.path.exists(handler.full_path)
@@ -15,17 +38,17 @@ class Case_no_file(object):
 
 
 # 路径是文件条件类
-class Case_existing_file(object):
+class Case_existing_file(Base_case):
 
     def test(self, handler):
         return os.path.isfile(handler.full_path)
 
     def act(self, handler):
-        handler.handler_file(handler.full_path)
+        self.handle_file(handler, handler.full_path)
 
 
 # 所有条件都不符合时默认处理类
-class Case_always_fail(object):
+class Case_always_fail(Base_case):
 
     def test(self, handler):
         return True
@@ -35,31 +58,52 @@ class Case_always_fail(object):
 
 
 # 根目录 index page 条件处理类
-class Case_index_file(object):
-
-    def index_path(self, handler):
-        return os.path.join(handler.full_path, 'index.html')
+class Case_index_file(Base_case):
 
     def test(self, handler):
         return os.path.isdir(handler.full_path) \
             and os.path.isfile(self.index_path(handler))
 
     def act(self, handler):
-        handler.handle_file(self.index_path(handler))
+        self.handle_file(handler, self.index_path(handler))
 
 
 # 根目录不存在 index page 条件处理类
-class Case_no_index_file(object):
+class Case_no_index_file(Base_case):
 
-    def index_path(self, handler):
-        return os.path.join(handler.full_path, 'index.html')
+    # 显示目录结构
+    def list_dir(self, handler):
+        try:
+            entries = os.listdir(handler.full_path)
+            bullets = ['<li>{0}</li>'.format(e) for e in entries if not e.startswith('.')]
+            page = handler.Listing_Page.format('\n'.join(bullets))
+            handler.send_content(page)
+
+        except OSError as message:
+            msg = "'{0}' cannot be listed: {1}".format(handler.path, message)
+            handler.handle_error(msg)
 
     def test(self, handler):
         return os.path.isdir(handler.full_path) \
             and not os.path.isfile(self.index_path(handler))
 
     def act(self, handler):
-        handler.list_dir(handler.full_path)
+        self.list_dir(handler.full_path)
+
+
+# CGI
+class Case_cgi_file(Base_case):
+
+    def run_cgi(self, handler):
+        data = subprocess.check_output(["python", handler.full_path])
+        handler.send_content(data)
+
+    def test(self, handler):
+        return os.path.isfile(handler.full_path) \
+            and handler.full_path.endswith('.py')
+
+    def act(self, handler):
+        self.run_cgi(handler)
 
 
 # 处理请求并返回页面
@@ -92,6 +136,7 @@ class RequestHandler(BaseHTTPRequestHandler):
     # 所有可能情况
     Cases = [
         Case_no_file(),
+        Case_cgi_file(),
         Case_existing_file(),
         Case_index_file(),
         Case_no_index_file(),
@@ -122,28 +167,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         if isinstance(content, str):
             content = content.encode('utf-8')
         self.wfile.write(content)
-
-    # 处理文件
-    def handle_file(self, full_path):
-        try:
-            with open(full_path, 'rb') as reader:
-                content = reader.read()
-            self.send_content(content)
-        except IOError as message:
-            message = "'{0}' cannot be read: {1}".format(self.path, message)
-            self.handle_error(message)
-
-    # 显示目录结构
-    def list_dir(self, full_path):
-        try:
-            entries = os.listdir(full_path)
-            bullets = ['<li>{0}</li>'.format(e) for e in entries if not e.startswith('.')]
-            page = self.Listing_Page.format('\n'.join(bullets))
-            self.send_content(page)
-
-        except OSError as message:
-            msg = "'{0}' cannot be listed: {1}".format(self.path, message)
-            self.handle_error(msg)
 
     # 处理异常
     def handle_error(self, message):
