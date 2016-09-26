@@ -7,6 +7,11 @@ except ImportError:
     from io import StringIO
 import sys
 
+# WSGI主要是对应用程序与服务器端的一些规定
+
+# 1. 服务器设置应用程序需要的两个参数
+# 2. 调用应用程序
+# 3. 迭代访问应用程序返回的结果，并将其传回客户端
 
 class WSGIServer(object):
 
@@ -15,16 +20,17 @@ class WSGIServer(object):
     request_queue_size = 1
 
     def __init__(self, server_address):
-        # Create a listening socket
+        # 创建一个 TCP/IP Socket 
         self.listen_socket = listen_socket = socket.socket(
             self.address_family,
             self.socket_type
         )
-        # Allow to reuse the same address
+
+        # 在杀死或重启服务器后，允许重用相同的地址
         listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # Bind
+        # 服务器绑定指定地址，bind 函数分配一个本地地址给 socket
         listen_socket.bind(server_address)
-        # Activate
+        # 服务器监听 socket
         listen_socket.listen(self.request_queue_size)
         # Get server host name and port
         host, port = self.listen_socket.getsockname()[:2]
@@ -64,8 +70,7 @@ class WSGIServer(object):
         # It's time to call our application callable and get
         # back a result that will become HTTP response body
         result = self.application(env, self.start_response)
-        print(type(result))
-        print(result)
+
         # Construct a response and send it back to the client
         self.finish_response(result)
 
@@ -84,21 +89,36 @@ class WSGIServer(object):
         # but it's formatted the way it is for demonstration purposes
         # to emphasize the required variables and their values
         #
-        # Required WSGI variables
+        # 必要的 WSGI 变量
         env['wsgi.version']      = (1, 0)
+        # 表示 url 的模式，例如 "https" 还是 "http"
         env['wsgi.url_scheme']   = 'http'
+        # 输入流，HTTP请求的 body 部分可以从这里读取
         env['wsgi.input']        = StringIO(self.request_data)
+        # 输出流，如果出现错误，可以写往这里
         env['wsgi.errors']       = sys.stderr
+        # 如果应用程序对象可以被同一进程中的另一线程同时调用，这个值为True
         env['wsgi.multithread']  = False
+        # 如果应用程序对象可以同时被另一个进程调用，这个值为True
         env['wsgi.multiprocess'] = False
+        # 如果服务器希望应用程序对象在包含它的进程中只被调用一次，那么这个值为True
         env['wsgi.run_once']     = False
-        # Required CGI variables
-        env['REQUEST_METHOD']    = self.request_method    # GET
-        env['PATH_INFO']         = self.path              # /hello
+
+        # 必要的 CGI 变量
+        #
+        # HTTP 请求方法：GET
+        env['REQUEST_METHOD']    = self.request_method
+        # URL 路径除了起始部分后的剩余部分，用于找到相应的应用程序对象。
+        # 如果请求的路径就是根路径，这个值为空字符串：/hello
+        env['PATH_INFO']         = self.path
+        # SERVER_NAME, SERVER_PORT 与 SCRIPT_NAME，PATH_INFO 共同构成完整的 URL，
+        # 它们永远不会为空。但是，如果 HTTP_HOST 存在的话，当构建 URL 时，
+        # HTTP_HOST优先于SERVER_NAME。
         env['SERVER_NAME']       = self.server_name       # localhost
         env['SERVER_PORT']       = str(self.server_port)  # 8888
         return env
 
+    # status：状态码，response_headers：header（list），exc_info：错误处理
     def start_response(self, status, response_headers, exc_info=None):
         # Add necessary server headers
         server_headers = [
@@ -119,11 +139,17 @@ class WSGIServer(object):
                 response += '{0}: {1}\r\n'.format(*header)
             response += '\r\n'
             print(type(response))
-            # type(data) ==> bytes, type(response) ==> str
-            # so ==> TypeError: Can't convert 'bytes' object to str implicitly
-            # to convert response type from str to bytes 
-            response = response.encode('utf-8')
+            # type(data) ==> bytes/str, type(response) ==> str, 
+            # and sendall function need a bytes type parameter
+            # then response += data may raise TypeError: Can't convert 'bytes' object to str implicitly
+            # so need to convert response type from str to bytes
+            # and validate data's type for whether convert to bytes
+            response = bytes(response, encoding='utf-8')
+
+            print(type(response))
             for data in result:
+                if isinstance(data, str):
+                    data = bytes(data, encoding='utf-8')
                 response += data
             # Print formatted response data a la 'curl -v'
             print(''.join(
